@@ -12,19 +12,9 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 @Entity
 @Table(name = "refresh_tokens")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class RefreshToken {
 
 	 	@Id
@@ -56,4 +46,87 @@ public class RefreshToken {
 	    public void prePersist() {
 	        createdAt = LocalDateTime.now();
 	    }
+
+		public Long getId() {
+			return id;
+		}
+
+		public void setId(Long id) {
+			this.id = id;
+		}
+
+		public UserAuth getUser() {
+			return user;
+		}
+
+		public void setUser(UserAuth user) {
+			this.user = user;
+		}
+
+		public String getToken() {
+			return token;
+		}
+
+		public void setToken(String token) {
+			this.token = token;
+		}
+
+		public String getDeviceId() {
+			return deviceId;
+		}
+
+		public void setDeviceId(String deviceId) {
+			this.deviceId = deviceId;
+		}
+
+		public String getIpAddress() {
+			return ipAddress;
+		}
+
+		public void setIpAddress(String ipAddress) {
+			this.ipAddress = ipAddress;
+		}
+
+		public LocalDateTime getExpiresAt() {
+			return expiresAt;
+		}
+
+		public void setExpiresAt(LocalDateTime expiresAt) {
+			this.expiresAt = expiresAt;
+		}
+
+		public Boolean getRevoked() {
+			return revoked;
+		}
+
+		public void setRevoked(Boolean revoked) {
+			this.revoked = revoked;
+		}
+
+		public LocalDateTime getCreatedAt() {
+			return createdAt;
+		}
+
+		public void setCreatedAt(LocalDateTime createdAt) {
+			this.createdAt = createdAt;
+		}
+
+		public RefreshToken(Long id, UserAuth user, String token, String deviceId, String ipAddress,
+				LocalDateTime expiresAt, Boolean revoked, LocalDateTime createdAt) {
+			super();
+			this.id = id;
+			this.user = user;
+			this.token = token;
+			this.deviceId = deviceId;
+			this.ipAddress = ipAddress;
+			this.expiresAt = expiresAt;
+			this.revoked = revoked;
+			this.createdAt = createdAt;
+		}
+
+		public RefreshToken() {
+			super();
+		}
+	    
+	    
 }

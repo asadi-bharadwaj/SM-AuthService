@@ -1,0 +1,162 @@
+Auth Service Testing Guide (Detailed)
+
+You’ve built these APIs:
+
+POST /auth/register
+POST /auth/login
+POST /auth/refresh
+POST /auth/send-otp
+POST /auth/verify-otp
+
+Now let’s test them properly end-to-end.
+
+1. Pre-Requisites Before Testing
+Services Running
+
+Start in this order:
+
+1. Eureka Server (8761)
+2. API Gateway (8080)
+3. Auth Service (8081)
+2. Verify Eureka Dashboard
+
+Open:
+
+http://localhost:8761
+
+You should see:
+
+AUTH-SERVICE
+API-GATEWAY
+
+Status = UP
+
+3. Verify Gateway Route
+
+Since gateway routes:
+
+/auth/**
+
+You should call:
+
+http://localhost:8080/auth/...
+
+Not directly 8081 (unless testing service alone).
+
+4. Use Postman / Insomnia / curl
+
+Recommended: Postman
+
+Create collection:
+
+Auth Service APIs
+5. Test Case 1 — Register User
+Endpoint
+POST http://localhost:8080/auth/register
+Content-Type: application/json
+Body
+{
+  "email": "user1@gmail.com",
+  "username": "bharadwaj",
+  "password": "Secret@123"
+}
+Expected Response
+Registered Successfully
+DB Validation
+
+Check users_auth table:
+
+select * from users_auth;
+
+Expected:
+
+email saved
+username saved
+password_hash encrypted
+uuid generated
+role USER
+status ACTIVE
+6. Test Case 2 — Duplicate Register
+
+Try same request again.
+
+Expected
+Email already exists
+
+(If no global exception handler, maybe 500 for now.)
+
+7. Test Case 3 — Login Success
+Endpoint
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+Body
+{
+  "email": "user1@gmail.com",
+  "password": "Secret@123"
+}
+Expected Response
+{
+  "accessToken": "access-user1@gmail.com-....",
+  "refreshToken": "refresh-user1@gmail.com-...."
+}
+DB Validation
+
+Check refresh token stored:
+
+select * from refresh_tokens;
+8. Test Case 4 — Login Wrong Password
+Body
+{
+  "email": "user1@gmail.com",
+  "password": "wrongpass"
+}
+Expected
+Invalid Password
+9. Test Case 5 — Refresh Token
+
+Use refresh token from login response.
+
+Endpoint
+POST http://localhost:8080/auth/refresh
+Content-Type: application/json
+Body
+{
+  "refreshToken": "refresh-user1@gmail.com-...."
+}
+Expected
+{
+  "accessToken": "new-access-token",
+  "refreshToken": "same-refresh-token"
+}
+10. Test Case 6 — Send OTP
+Endpoint
+POST http://localhost:8080/auth/send-otp
+Content-Type: application/json
+Body
+{
+  "target": "9999999999"
+}
+Expected Response
+OTP Sent
+Console Validation
+
+Auth service logs show:
+
+OTP => 483921
+11. Test Case 7 — Verify OTP
+
+Use OTP from console.
+
+Endpoint
+POST http://localhost:8080/auth/verify-otp
+Content-Type: application/json
+Body
+{
+  "target": "9999999999",
+  "otp": "483921"
+}
+Expected
+{
+  "accessToken": "...",
+  "refreshToken": "..."
+}
