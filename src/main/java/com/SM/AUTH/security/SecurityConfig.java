@@ -19,6 +19,8 @@ public class SecurityConfig {
             .httpBasic(basic -> basic.disable())
 
             .authorizeHttpRequests(auth -> auth
+
+                // Public Auth APIs
                 .requestMatchers(
                     "/auth/register",
                     "/auth/login",
@@ -26,6 +28,16 @@ public class SecurityConfig {
                     "/auth/send-otp",
                     "/auth/verify-otp"
                 ).permitAll()
+
+                // Temporary Public User APIs (for development/testing)
+                .requestMatchers(
+                    "/users/health",
+                    "/users/me",
+                    "/users/follow/**",
+                    "/users/following"
+                ).permitAll()
+
+                // Everything else secured
                 .anyRequest().authenticated()
             );
 
