@@ -1,10 +1,13 @@
 package com.SM.AUTH.service;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import com.SM.AUTH.dto.AuthResponse;
 import com.SM.AUTH.dto.LoginRequest;
@@ -20,8 +23,6 @@ import com.SM.AUTH.repository.RefreshTokenRepository;
 import com.SM.AUTH.repository.UserAuthRepository;
 import com.SM.AUTH.security.JwtUtil;
 import com.SM.AUTH.util.Role;
-import com.SM.UserService.Repository.UserProfileRepository;
-import com.SM.UserService.entity.UserProfile;
 
 
 @Service
@@ -33,19 +34,16 @@ public class AuthService {
     private  OtpVerificationRepository otpRepo;
     private  PasswordEncoder encoder;
     private  JwtUtil jwtUtil;
-    private UserProfileRepository profileRepo;
     public AuthService(
             UserAuthRepository userRepo,
             RefreshTokenRepository refreshRepo,
             OtpVerificationRepository otpRepo,
-            UserProfileRepository profileRepo,
             PasswordEncoder encoder,
             JwtUtil jwtUtil) {
 
         this.userRepo = userRepo;
         this.refreshRepo = refreshRepo;
         this.otpRepo = otpRepo;
-        this.profileRepo = profileRepo;
         this.encoder = encoder;
         this.jwtUtil = jwtUtil;
     }
@@ -63,22 +61,27 @@ public class AuthService {
 
         UserAuth savedUser = userRepo.save(user);
 
-        // Create profile immediately
-        UserProfile profile = new UserProfile();
-        profile.setAuthUserId(savedUser.getId());
-        profile.setUsername(savedUser.getUsername());
-        profile.setDisplayName(savedUser.getUsername());
-        profile.setBio("");
-        profile.setAvatarUrl("");
-        profile.setCountry("");
-        profile.setLanguage("");
+        // Call USER service to create profile
+        try {
+            RestTemplate restTemplate = new RestTemplate();
 
-        if (!profileRepo.findByAuthUserId(savedUser.getId()).isPresent()) {
-        	   profileRepo.save(profile);
-        	}
+            Map<String, Object> body = new HashMap<>();
+            body.put("authUserId", savedUser.getId());
+            body.put("username", savedUser.getUsername());
+
+            restTemplate.postForObject(
+                "http://localhost:8083/users/init-profile",
+                body,
+                String.class
+            );
+
+        } catch (Exception e) {
+            System.out.println("User profile creation failed: " + e.getMessage());
+        }
 
         return "Registered Successfully";
     }
+
     public AuthResponse login(LoginRequest req) {
 
         UserAuth user = userRepo.findByEmail(req.getEmail())
