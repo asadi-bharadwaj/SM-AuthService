@@ -20,6 +20,8 @@ import com.SM.AUTH.repository.RefreshTokenRepository;
 import com.SM.AUTH.repository.UserAuthRepository;
 import com.SM.AUTH.security.JwtUtil;
 import com.SM.AUTH.util.Role;
+import com.SM.UserService.Repository.UserProfileRepository;
+import com.SM.UserService.entity.UserProfile;
 
 
 @Service
@@ -31,16 +33,19 @@ public class AuthService {
     private  OtpVerificationRepository otpRepo;
     private  PasswordEncoder encoder;
     private  JwtUtil jwtUtil;
+    private UserProfileRepository profileRepo;
     public AuthService(
             UserAuthRepository userRepo,
             RefreshTokenRepository refreshRepo,
             OtpVerificationRepository otpRepo,
+            UserProfileRepository profileRepo,
             PasswordEncoder encoder,
             JwtUtil jwtUtil) {
 
         this.userRepo = userRepo;
         this.refreshRepo = refreshRepo;
         this.otpRepo = otpRepo;
+        this.profileRepo = profileRepo;
         this.encoder = encoder;
         this.jwtUtil = jwtUtil;
     }
@@ -56,11 +61,24 @@ public class AuthService {
         user.setPasswordHash(encoder.encode(req.getPassword()));
         user.setRole(Role.USER);
 
-        userRepo.save(user);
+        UserAuth savedUser = userRepo.save(user);
+
+        // Create profile immediately
+        UserProfile profile = new UserProfile();
+        profile.setAuthUserId(savedUser.getId());
+        profile.setUsername(savedUser.getUsername());
+        profile.setDisplayName(savedUser.getUsername());
+        profile.setBio("");
+        profile.setAvatarUrl("");
+        profile.setCountry("");
+        profile.setLanguage("");
+
+        if (!profileRepo.findByAuthUserId(savedUser.getId()).isPresent()) {
+        	   profileRepo.save(profile);
+        	}
 
         return "Registered Successfully";
     }
-
     public AuthResponse login(LoginRequest req) {
 
         UserAuth user = userRepo.findByEmail(req.getEmail())
