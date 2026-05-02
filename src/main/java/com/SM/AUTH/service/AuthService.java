@@ -79,7 +79,7 @@ public class AuthService {
 
         refreshRepo.save(token);
 
-        return new AuthResponse(access, refresh);
+        return new AuthResponse(user.getId(), access, refresh);
     }
 
     public AuthResponse refresh(RefreshRequest req) {
