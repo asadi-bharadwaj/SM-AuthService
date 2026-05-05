@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,34 +25,78 @@ import com.SM.AUTH.repository.UserAuthRepository;
 import com.SM.AUTH.security.JwtUtil;
 import com.SM.AUTH.util.Role;
 
-
 @Service
 public class AuthService {
-	
 
-    private  UserAuthRepository userRepo;
-    private  RefreshTokenRepository refreshRepo;
-    private  OtpVerificationRepository otpRepo;
-    private  PasswordEncoder encoder;
-    private  JwtUtil jwtUtil;
+    private final UserAuthRepository userRepo;
+    private final RefreshTokenRepository refreshRepo;
+    private final OtpVerificationRepository otpRepo;
+    private final PasswordEncoder encoder;
+    private final JwtUtil jwtUtil;
+
+    // Regex for Email: alphanumeric before @, dot between domain and tld
+    private static final String EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}$";
+    // Regex for Password: Min 8 chars, at least 1 special char, 1 number, 1 uppercase
+    private static final String PWD_REGEX = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=!])(?=\\S+$).{8,}$";
+
     public AuthService(
             UserAuthRepository userRepo,
             RefreshTokenRepository refreshRepo,
             OtpVerificationRepository otpRepo,
             PasswordEncoder encoder,
             JwtUtil jwtUtil) {
-
         this.userRepo = userRepo;
         this.refreshRepo = refreshRepo;
         this.otpRepo = otpRepo;
         this.encoder = encoder;
         this.jwtUtil = jwtUtil;
     }
-    public String register(RegisterRequest req) {
 
+    private void validate(String email, String password) {
+        if (!Pattern.matches(EMAIL_REGEX, email)) {
+            throw new RuntimeException("Invalid email format. Use a valid domain (e.g., gmail.com)");
+        }
+        if (!Pattern.matches(PWD_REGEX, password)) {
+            throw new RuntimeException("Password must be at least 8 characters, include a number, uppercase letter, and a special character.");
+        }
+    }
+
+    public String startRegistration(RegisterRequest req) {
+        // 1. Validate Email & Password
+        validate(req.getEmail(), req.getPassword());
+
+        // 2. Check if user already exists
         if (userRepo.existsByEmail(req.getEmail()))
             throw new RuntimeException("Email already exists");
 
+        // 3. Generate and Send OTP
+        String otp = String.valueOf((int)(Math.random() * 900000) + 100000);
+        OtpVerification entity = new OtpVerification();
+        entity.setTarget(req.getEmail());
+        entity.setOtpCode(otp);
+        entity.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        otpRepo.save(entity);
+
+        sendNotification(req.getEmail(), "EMAIL", "Verify your Registration", 
+            "Your OTP code for ShowMe registration is: " + otp);
+
+        return "OTP sent to your email. Please verify to complete registration.";
+    }
+
+    public String completeRegistration(RegisterRequest req) {
+        // 1. Verify OTP
+        OtpVerification otpEntity = otpRepo.findTopByTargetOrderByIdDesc(req.getEmail())
+                .orElseThrow(() -> new RuntimeException("OTP not found or expired"));
+
+        if (!otpEntity.getOtpCode().equals(req.getOtp())) {
+            throw new RuntimeException("Invalid OTP code");
+        }
+
+        if (otpEntity.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("OTP has expired. Please request a new one.");
+        }
+
+        // 2. Create User
         UserAuth user = new UserAuth();
         user.setUuid(UUID.randomUUID().toString());
         user.setEmail(req.getEmail());
@@ -61,29 +106,25 @@ public class AuthService {
 
         UserAuth savedUser = userRepo.save(user);
 
-        // Call USER service to create profile
+        // 3. Call USER service to create profile
         try {
             RestTemplate restTemplate = new RestTemplate();
-
             Map<String, Object> body = new HashMap<>();
             body.put("authUserId", savedUser.getId());
             body.put("username", savedUser.getUsername());
-
-            restTemplate.postForObject(
-                "http://localhost:8083/users/init-profile",
-                body,
-                String.class
-            );
-
+            restTemplate.postForObject("http://localhost:8083/users/init-profile", body, String.class);
         } catch (Exception e) {
-            System.out.println("User profile creation failed: " + e.getMessage());
+            System.err.println("Profile creation failed: " + e.getMessage());
         }
+
+        // 4. Send Welcome Email
+        sendNotification(user.getEmail(), "EMAIL", "Welcome to ShowMe!", 
+            "Hi " + user.getUsername() + ", your account has been verified and created successfully.");
 
         return "Registered Successfully";
     }
 
     public AuthResponse login(LoginRequest req) {
-
         UserAuth user = userRepo.findByEmail(req.getEmail())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -97,55 +138,54 @@ public class AuthService {
         token.setUser(user);
         token.setToken(refresh);
         token.setExpiresAt(LocalDateTime.now().plusDays(7));
-
         refreshRepo.save(token);
+
+        // Send Login Notification
+        sendNotification(user.getEmail(), "EMAIL", "New Login Detected", 
+            "Hi " + user.getUsername() + ", you have successfully logged into your ShowMe account.");
 
         return new AuthResponse(user.getId(), access, refresh);
     }
 
-    public AuthResponse refresh(RefreshRequest req) {
+    private void sendNotification(String recipientId, String type, String title, String message) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            Map<String, Object> body = new HashMap<>();
+            body.put("recipientId", recipientId);
+            body.put("type", type);
+            body.put("title", title);
+            body.put("message", message);
+            restTemplate.postForObject("http://localhost:8084/api/notifications", body, String.class);
+        } catch (Exception e) {
+            System.err.println("Notification failed: " + e.getMessage());
+        }
+    }
 
+    public AuthResponse refresh(RefreshRequest req) {
         RefreshToken token = refreshRepo.findByToken(req.getRefreshToken())
                 .orElseThrow(() -> new RuntimeException("Invalid token"));
-
-        String access =
-            jwtUtil.generateAccessToken(token.getUser().getEmail());
-
+        String access = jwtUtil.generateAccessToken(token.getUser().getEmail());
         return new AuthResponse(access, token.getToken());
     }
 
     public String sendOtp(OtpRequest req) {
-
-        String otp =
-            String.valueOf((int)(Math.random() * 900000) + 100000);
-
+        String otp = String.valueOf((int)(Math.random() * 900000) + 100000);
         OtpVerification entity = new OtpVerification();
         entity.setTarget(req.getTarget());
         entity.setOtpCode(otp);
         entity.setExpiresAt(LocalDateTime.now().plusMinutes(5));
-
         otpRepo.save(entity);
-
         System.out.println("OTP => " + otp);
-
         return "OTP Sent";
     }
 
     public AuthResponse verifyOtp(VerifyOtpRequest req) {
-
-        OtpVerification otp = otpRepo
-                .findTopByTargetOrderByIdDesc(req.getTarget())
+        OtpVerification otp = otpRepo.findTopByTargetOrderByIdDesc(req.getTarget())
                 .orElseThrow(() -> new RuntimeException("OTP not found"));
-
         if (!otp.getOtpCode().equals(req.getOtp()))
             throw new RuntimeException("Wrong OTP");
-
-        String access =
-            jwtUtil.generateAccessToken(req.getTarget());
-
-        String refresh =
-            jwtUtil.generateRefreshToken(req.getTarget());
-
+        String access = jwtUtil.generateAccessToken(req.getTarget());
+        String refresh = jwtUtil.generateRefreshToken(req.getTarget());
         return new AuthResponse(access, refresh);
     }
 }

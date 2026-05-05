@@ -20,9 +20,20 @@ public class AuthController {
         this.authService = authService;
     }
 
+    @PostMapping("/register/start")
+    public ResponseEntity<?> registerStart(@RequestBody RegisterRequest req) {
+        return ResponseEntity.ok(authService.startRegistration(req));
+    }
+
+    @PostMapping("/register/complete")
+    public ResponseEntity<?> registerComplete(@RequestBody RegisterRequest req) {
+        return ResponseEntity.ok(authService.completeRegistration(req));
+    }
+
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest req) {
-        return ResponseEntity.ok(authService.register(req));
+        // Keeping for backward compatibility or direct access
+        return ResponseEntity.ok(authService.completeRegistration(req));
     }
 
     @PostMapping("/login")
