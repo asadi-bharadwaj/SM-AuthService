@@ -35,8 +35,10 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/users/health",
                     "/users/me",
+                    "/users/me/avatar",
                     "/users/follow/**",
-                    "/users/following"
+                    "/users/following",
+                    "/users/followers"
                 ).permitAll()
 
                 // Everything else secured
