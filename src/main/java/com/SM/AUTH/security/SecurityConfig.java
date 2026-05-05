@@ -23,6 +23,8 @@ public class SecurityConfig {
                 // Public Auth APIs
                 .requestMatchers(
                     "/auth/register",
+                    "/auth/register/start",
+                    "/auth/register/complete",
                     "/auth/login",
                     "/auth/refresh",
                     "/auth/send-otp",
