@@ -1,11 +1,15 @@
 package com.SM.AUTH.service;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -33,33 +37,46 @@ public class AuthService {
     private final OtpVerificationRepository otpRepo;
     private final PasswordEncoder encoder;
     private final JwtUtil jwtUtil;
+    private final RestTemplate restTemplate;
+    private final Executor asyncIoExecutor;
 
-    // More robust email regex: allows most common characters and subdomains
     private static final String EMAIL_REGEX = "^[\\w!#$%&'*+/=?`{|}~^-]+(?:\\.[\\w!#$%&'*+/=?`{|}~^-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,6}$";
-    // Regex for Password: Min 8 chars, at least 1 special char, 1 number, 1 uppercase
     private static final String PWD_REGEX = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=!])(?=\\S+$).{8,}$";
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(EMAIL_REGEX);
+    private static final Pattern PASSWORD_PATTERN = Pattern.compile(PWD_REGEX);
 
     public AuthService(
             UserAuthRepository userRepo,
             RefreshTokenRepository refreshRepo,
             OtpVerificationRepository otpRepo,
             PasswordEncoder encoder,
-            JwtUtil jwtUtil) {
+            JwtUtil jwtUtil,
+            RestTemplate restTemplate,
+            @Qualifier("asyncIoExecutor") Executor asyncIoExecutor) {
         this.userRepo = userRepo;
         this.refreshRepo = refreshRepo;
         this.otpRepo = otpRepo;
         this.encoder = encoder;
         this.jwtUtil = jwtUtil;
+        this.restTemplate = restTemplate;
+        this.asyncIoExecutor = asyncIoExecutor;
     }
 
     private void validate(String email, String password) {
-        System.out.println("Validating Email: [" + email + "]");
-        if (email == null || !Pattern.compile(EMAIL_REGEX).matcher(email.trim()).matches()) {
+        Matcher emailMatcher = email == null ? null : EMAIL_PATTERN.matcher(email.trim());
+        if (email == null || !emailMatcher.matches()) {
             throw new RuntimeException("Invalid email format. Ensure there are no spaces and you use a valid domain (e.g., test@gmail.com)");
         }
-        if (password == null || !Pattern.matches(PWD_REGEX, password.trim())) {
+        Matcher passwordMatcher = password == null ? null : PASSWORD_PATTERN.matcher(password.trim());
+        if (password == null || !passwordMatcher.matches()) {
             throw new RuntimeException("Password must be at least 8 characters, include a number, uppercase letter, and a special character.");
         }
+    }
+
+    private Long nextUserId() {
+        return userRepo.findFirstByOrderByIdDesc()
+                .map(existing -> existing.getId() + 1)
+                .orElse(1L);
     }
 
     public String startRegistration(RegisterRequest req) {
@@ -79,10 +96,11 @@ public class AuthService {
         entity.setTarget(email);
         entity.setOtpCode(otp);
         entity.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        entity.setCreatedAt(LocalDateTime.now());
         otpRepo.save(entity);
 
-        sendNotification(email, "EMAIL", "Verify your Registration", 
-            "Your OTP code for ShowMe registration is: " + otp);
+        sendNotificationAsync(email, "EMAIL", "Verify your Registration",
+                "Your OTP code for ShowMe registration is: " + otp);
 
         return "OTP sent to your email. Please verify to complete registration.";
     }
@@ -104,28 +122,21 @@ public class AuthService {
 
         // 2. Create User
         UserAuth user = new UserAuth();
+        user.setId(nextUserId());
         user.setUuid(UUID.randomUUID().toString());
         user.setEmail(req.getEmail());
         user.setUsername(req.getUsername());
         user.setPasswordHash(encoder.encode(req.getPassword()));
         user.setRole(Role.USER);
+        user.setCreatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
 
         UserAuth savedUser = userRepo.save(user);
 
-        // 3. Call USER service to create profile
-        try {
-            RestTemplate restTemplate = new RestTemplate();
-            Map<String, Object> body = new HashMap<>();
-            body.put("authUserId", savedUser.getId());
-            body.put("username", savedUser.getUsername());
-            restTemplate.postForObject("http://localhost:8083/users/init-profile", body, String.class);
-        } catch (Exception e) {
-            System.err.println("Profile creation failed: " + e.getMessage());
-        }
+        createProfileAsync(savedUser);
 
-        // 4. Send Welcome Email
-        sendNotification(user.getEmail(), "EMAIL", "Welcome to ShowMe!", 
-            "Hi " + user.getUsername() + ", your account has been verified and created successfully.");
+        sendNotificationAsync(user.getEmail(), "EMAIL", "Welcome to ShowMe!",
+                "Hi " + user.getUsername() + ", your account has been verified and created successfully.");
 
         return "Registered Successfully";
     }
@@ -144,18 +155,37 @@ public class AuthService {
         token.setUser(user);
         token.setToken(refresh);
         token.setExpiresAt(LocalDateTime.now().plusDays(7));
+        token.setCreatedAt(LocalDateTime.now());
         refreshRepo.save(token);
 
-        // Send Login Notification
-        sendNotification(user.getEmail(), "EMAIL", "New Login Detected", 
-            "Hi " + user.getUsername() + ", you have successfully logged into your ShowMe account.");
+        // Ensure profile stays in sync even if initial async profile init failed.
+        createProfileAsync(user);
+
+        sendNotificationAsync(user.getEmail(), "EMAIL", "New Login Detected",
+                "Hi " + user.getUsername() + ", you have successfully logged into your ShowMe account.");
 
         return new AuthResponse(user.getId(), access, refresh);
     }
 
+    private void sendNotificationAsync(String recipientId, String type, String title, String message) {
+        CompletableFuture.runAsync(() -> sendNotification(recipientId, type, title, message), asyncIoExecutor);
+    }
+
+    private void createProfileAsync(UserAuth savedUser) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                Map<String, Object> body = new HashMap<>();
+                body.put("authUserId", savedUser.getId());
+                body.put("username", savedUser.getUsername());
+                restTemplate.postForObject("http://localhost:8083/users/init-profile", body, String.class);
+            } catch (Exception e) {
+                System.err.println("Profile creation failed: " + e.getMessage());
+            }
+        }, asyncIoExecutor);
+    }
+
     private void sendNotification(String recipientId, String type, String title, String message) {
         try {
-            RestTemplate restTemplate = new RestTemplate();
             Map<String, Object> body = new HashMap<>();
             body.put("recipientId", recipientId);
             body.put("type", type);
@@ -180,6 +210,7 @@ public class AuthService {
         entity.setTarget(req.getTarget());
         entity.setOtpCode(otp);
         entity.setExpiresAt(LocalDateTime.now().plusMinutes(5));
+        entity.setCreatedAt(LocalDateTime.now());
         otpRepo.save(entity);
         System.out.println("OTP => " + otp);
         return "OTP Sent";

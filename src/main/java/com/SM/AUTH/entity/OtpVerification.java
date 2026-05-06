@@ -3,55 +3,36 @@ package com.SM.AUTH.entity;
 import java.time.LocalDateTime;
 
 import com.SM.AUTH.util.OtpPurpose;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
+import org.springframework.data.mongodb.core.mapping.Document;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.Table;
-
-@Entity
-@Table(name = "otp_verifications")
+@Document(collection = "otp_verifications")
 public class OtpVerification {
 
 	@Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private String id;
 
-    @Column(nullable = false, length = 150)
+    @Indexed
     private String target;
 
-    @Column(name = "otp_code", nullable = false, length = 10)
     private String otpCode;
 
-    @Enumerated(EnumType.STRING)
-    @Column(length = 30)
     private OtpPurpose purpose;
 
-    @Column(name = "expires_at", nullable = false)
     private LocalDateTime expiresAt;
 
     private Boolean verified = false;
 
     private Integer attempts = 0;
 
-    @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    @PrePersist
-    public void prePersist() {
-        createdAt = LocalDateTime.now();
-    }
-
-	public Long getId() {
+	public String getId() {
 		return id;
 	}
 
-	public void setId(Long id) {
+	public void setId(String id) {
 		this.id = id;
 	}
 
@@ -111,7 +92,7 @@ public class OtpVerification {
 		this.createdAt = createdAt;
 	}
 
-	public OtpVerification(Long id, String target, String otpCode, OtpPurpose purpose, LocalDateTime expiresAt,
+	public OtpVerification(String id, String target, String otpCode, OtpPurpose purpose, LocalDateTime expiresAt,
 			Boolean verified, Integer attempts, LocalDateTime createdAt) {
 		super();
 		this.id = id;
