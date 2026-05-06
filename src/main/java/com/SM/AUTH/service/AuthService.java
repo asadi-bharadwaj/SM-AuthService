@@ -34,8 +34,8 @@ public class AuthService {
     private final PasswordEncoder encoder;
     private final JwtUtil jwtUtil;
 
-    // Regex for Email: alphanumeric before @, dot between domain and tld
-    private static final String EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,6}$";
+    // More robust email regex: allows most common characters and subdomains
+    private static final String EMAIL_REGEX = "^[\\w!#$%&'*+/=?`{|}~^-]+(?:\\.[\\w!#$%&'*+/=?`{|}~^-]+)*@(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,6}$";
     // Regex for Password: Min 8 chars, at least 1 special char, 1 number, 1 uppercase
     private static final String PWD_REGEX = "^(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?=.*[@#$%^&+=!])(?=\\S+$).{8,}$";
 
@@ -53,39 +53,45 @@ public class AuthService {
     }
 
     private void validate(String email, String password) {
-        if (!Pattern.matches(EMAIL_REGEX, email)) {
-            throw new RuntimeException("Invalid email format. Use a valid domain (e.g., gmail.com)");
+        System.out.println("Validating Email: [" + email + "]");
+        if (email == null || !Pattern.compile(EMAIL_REGEX).matcher(email.trim()).matches()) {
+            throw new RuntimeException("Invalid email format. Ensure there are no spaces and you use a valid domain (e.g., test@gmail.com)");
         }
-        if (!Pattern.matches(PWD_REGEX, password)) {
+        if (password == null || !Pattern.matches(PWD_REGEX, password.trim())) {
             throw new RuntimeException("Password must be at least 8 characters, include a number, uppercase letter, and a special character.");
         }
     }
 
     public String startRegistration(RegisterRequest req) {
+        String email = req.getEmail() != null ? req.getEmail().trim() : null;
+        String password = req.getPassword() != null ? req.getPassword().trim() : null;
+
         // 1. Validate Email & Password
-        validate(req.getEmail(), req.getPassword());
+        validate(email, password);
 
         // 2. Check if user already exists
-        if (userRepo.existsByEmail(req.getEmail()))
+        if (userRepo.existsByEmail(email))
             throw new RuntimeException("Email already exists");
 
         // 3. Generate and Send OTP
         String otp = String.valueOf((int)(Math.random() * 900000) + 100000);
         OtpVerification entity = new OtpVerification();
-        entity.setTarget(req.getEmail());
+        entity.setTarget(email);
         entity.setOtpCode(otp);
         entity.setExpiresAt(LocalDateTime.now().plusMinutes(10));
         otpRepo.save(entity);
 
-        sendNotification(req.getEmail(), "EMAIL", "Verify your Registration", 
+        sendNotification(email, "EMAIL", "Verify your Registration", 
             "Your OTP code for ShowMe registration is: " + otp);
 
         return "OTP sent to your email. Please verify to complete registration.";
     }
 
     public String completeRegistration(RegisterRequest req) {
+        String email = req.getEmail() != null ? req.getEmail().trim() : null;
+        
         // 1. Verify OTP
-        OtpVerification otpEntity = otpRepo.findTopByTargetOrderByIdDesc(req.getEmail())
+        OtpVerification otpEntity = otpRepo.findTopByTargetOrderByIdDesc(email)
                 .orElseThrow(() -> new RuntimeException("OTP not found or expired"));
 
         if (!otpEntity.getOtpCode().equals(req.getOtp())) {
